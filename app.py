@@ -73,16 +73,16 @@ def hard_reset_all():
 
 st.title("🎬 Khmer Dubbing Studio Pro")
 
-# UI Storage Control Box
+# Storage Info Bar
 col_info, col_reset = st.columns([2.5, 1.5])
 with col_info:
-    st.info("💡 ដំណើរការ៖ ១. បញ្ចូលវីដេអូ ➔ ២. បកប្រែ Script ➔ ៣. បង្កើតសំឡេង Auto-Sync ➔ ៤. Render វីដេអូពេញប្រវែងដើម")
+    st.info("💡 ដំណើរការ៖ ១. បញ្ចូលវីដេអូ ➔ ២. បកប្រែ Script ➔ ៣. បង្កើតសំឡេង Auto-Sync ➔ ៤. Render វីដេអូ")
 with col_reset:
     used_mb = get_dir_size_mb()
-    st.metric(label="💾 ទំហំផ្ទុកប្រើប្រាស់ (Disk Usage)", value=f"{used_mb:.1f} MB")
-    if st.button("🗑️ សម្អាត Storage ទាំងអស់ (Reset)", type="secondary", use_container_width=True):
+    st.metric(label="💾 Disk Usage", value=f"{used_mb:.1f} MB")
+    if st.button("🗑️ Reset All", type="secondary", use_container_width=True):
         hard_reset_all()
-        st.success("✅ បានសម្អាតទំហំផ្ទុកជោគជ័យ!")
+        st.success("✅ បានសម្អាតរួចរាល់!")
         st.rerun()
 
 st.divider()
@@ -105,28 +105,24 @@ def has_audio_stream(file_path):
 
 def download_video_all(url, out_path):
     url = url.strip()
-    
-    # សម្អាតវីដេអូចាស់ចោលជាមុនសិន ដើម្បីកុំឱ្យចង្អៀតមេម៉ូរី
     for f in [out_path, "t_raw_vid.mp4", "t_raw_aud.mp3"]:
         if os.path.exists(f):
             try: os.remove(f)
             except Exception: pass
 
-    # 1. សម្រាប់ TikTok (តាម TikWM)
+    # TikTok
     if "tiktok.com" in url.lower():
         try:
             api_url = "https://www.tikwm.com/api/"
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            res = requests.post(api_url, headers=headers, data={'url': url, 'web': 1}, verify=False, timeout=15).json()
+            res = requests.post(api_url, headers={'User-Agent': 'Mozilla/5.0'}, data={'url': url, 'web': 1}, verify=False, timeout=15).json()
             if res.get("code") == 0 and "data" in res:
                 v_url = res["data"].get("play") or res["data"].get("wmplay")
                 m_url = res["data"].get("music")
-                t_vid = "t_raw_vid.mp4"
-                t_aud = "t_raw_aud.mp3"
-                rv = requests.get(v_url, headers=headers, verify=False, timeout=30)
+                t_vid, t_aud = "t_raw_vid.mp4", "t_raw_aud.mp3"
+                rv = requests.get(v_url, headers={'User-Agent': 'Mozilla/5.0'}, verify=False, timeout=30)
                 with open(t_vid, "wb") as f: f.write(rv.content)
                 if m_url:
-                    ra = requests.get(m_url, headers=headers, verify=False, timeout=20)
+                    ra = requests.get(m_url, headers={'User-Agent': 'Mozilla/5.0'}, verify=False, timeout=20)
                     with open(t_aud, "wb") as f: f.write(ra.content)
                     subprocess.run(["ffmpeg", "-y", "-i", t_vid, "-i", t_aud, "-c:v", "copy", "-c:a", "aac", out_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     if os.path.exists(t_aud): os.remove(t_aud)
@@ -139,53 +135,37 @@ def download_video_all(url, out_path):
         except Exception:
             pass
 
-    # 2. សម្រាប់ Dailymotion, Facebook, Vimeo និងវេបសាយទូទៅ (Universal)
-    if not ("youtube.com" in url.lower() or "youtu.be" in url.lower()):
-        try:
-            ydl_opts = {
-                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-                'outtmpl': out_path,
-                'nocheckcertificate': True,
-                'quiet': True,
-                'no_warnings': True,
-                'merge_output_format': 'mp4'
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
-            if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
-                return True, "ជោគជ័យ"
-        except Exception as e:
-            return False, f"កំហុសទាញយក៖ {e}"
+    # Universal / Dailymotion / FB
+    try:
+        ydl_opts = {
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'outtmpl': out_path,
+            'nocheckcertificate': True,
+            'quiet': True,
+            'no_warnings': True,
+            'merge_output_format': 'mp4'
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
+            return True, "ជោគជ័យ"
+    except Exception as e:
+        err_msg = str(e)
+        if "youtube" in url.lower() or "youtu.be" in url.lower():
+            return False, "YouTube បានដាក់កំហិត Bot Block លើ Server Cloud។ សូម Upload File MP4 ដោយផ្ទាល់។"
+        return False, f"កំហុសទាញយក៖ {err_msg}"
 
-    # 3. សម្រាប់ YouTube
-    clients = [['mweb'], ['ios'], ['android']]
-    last_err = ""
-    for c in clients:
-        try:
-            ydl_opts = {
-                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-                'outtmpl': out_path,
-                'nocheckcertificate': True,
-                'quiet': True,
-                'no_warnings': True,
-                'extractor_args': {'youtube': {'player_client': c}},
-                'merge_output_format': 'mp4'
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
-            if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
-                return True, "ជោគជ័យ"
-        except Exception as e:
-            last_err = str(e)
-            continue
-            
-    return False, f"កំហុស YouTube Bot Block៖ {last_err}"
+    return False, "មិនអាចទាញយកបានទេ សូមពិនិត្យមើល Link ឬ Upload File MP4"
 
 def parse_time_to_ms(t):
     t = t.replace(',', '.').strip()
     p = t.split(':')
-    if len(p) == 3: return int((int(p[0]) * 3600 + int(p[1]) * 60 + float(p[2])) * 1000)
-    elif len(p) == 2: return int((int(p[0]) * 60 + float(p[1])) * 1000)
+    if len(p) == 3: 
+        return int((int(p[0]) * 3600 + int(p[1]) * 60 + float(p[2])) * 1000)
+    elif len(p) == 2: 
+        return int((int(p[0]) * 60 + float(p[1])) * 1000)
+    elif len(p) == 1:
+        return int(float(p[0]) * 1000)
     return 0
 
 def ms_to_ass_time(ms):
@@ -218,14 +198,19 @@ def limit_to_single_line(text, max_len=40):
         else: break
     return out if out else text[:max_len]
 
+# Regex គាំទ្រគ្រប់ទម្រង់ម៉ោង (HH:MM:SS,mmm ឬ MM:SS,mmm ឬ SS,mmm)
 def parse_srt(srt_text, mode):
     lines = srt_text.replace('\r\n', '\n').split('\n')
     items = []
     curr_start, curr_end, curr_text = None, None, []
+    
+    # Flexible Pattern សម្រាប់ម៉ោង
+    time_pat = re.compile(r'((?:\d{1,2}:)?\d{1,2}:\d{2}[.,]\d{1,3})\s*-->\s*((?:\d{1,2}:)?\d{1,2}:\d{2}[.,]\d{1,3})')
+
     for line in lines:
         s = line.strip()
         if not s: continue
-        m = re.search(r'(\d{1,2}:\d{2}:\d{2}[.,]\d{3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[.,]\d{3})', s)
+        m = time_pat.search(s)
         if m:
             if curr_start and curr_text:
                 sp = " ".join(curr_text).strip()
@@ -346,7 +331,7 @@ if os.path.exists(video_input_path):
                             "1. Listen to the entire audio file from beginning to end.\n"
                             "2. Transcribe every spoken sentence and translate directly into natural spoken Khmer.\n"
                             "3. Tag [ប្រុស] for male voice or [ស្រី] for female voice at start of each line.\n"
-                            "4. Output strictly in valid SubRip (.srt) subtitle format.\n"
+                            "4. Output strictly in valid SubRip (.srt) subtitle format with standard timecodes (00:00:00,000 --> 00:00:00,000).\n"
                             "5. Do not skip dialogues. Output raw SRT only."
                         )
                         response = client.models.generate_content(
@@ -414,6 +399,8 @@ if st.button("🎙️ ចាប់ផ្ដើមបង្កើតសំឡេ�
             combined.export(raw_khmer_audio, format="mp3")
             status.success(f"🎉 បង្កើតសំឡេង Auto-Sync គ្រប់ {total} ជួររួចរាល់!")
             st.rerun()
+        else:
+            st.error("❌ មិនអាច Parse SRT បានទេ! សូមពិនិត្យទម្រង់ម៉ោង (ឧទាហរណ៍៖ 00:01,000 --> 00:06,800)។")
 
 if os.path.exists(raw_khmer_audio):
     st.audio(raw_khmer_audio, format="audio/mp3")
@@ -422,7 +409,7 @@ if os.path.exists(raw_khmer_audio):
 
 st.divider()
 
-# 5. Step 2: Render Options (រក្សាប្រវែងដើម ១០០%)
+# 5. Step 2: Render Options
 st.subheader("🎬 ៥. ជំហានទី ២៖ ជ្រើសរើស Render វីដេអូ (រក្សាប្រវែងដើម)")
 
 col_r1, col_r2 = st.columns(2)
