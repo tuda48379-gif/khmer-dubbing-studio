@@ -15,8 +15,9 @@ from google import genai
 ssl._create_default_https_context = ssl._create_unverified_context
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-st.set_page_config(page_title="Khmer Dubbing Studio", layout="wide")
+st.set_page_config(page_title="Khmer Dubbing Studio Pro", layout="wide")
 
+# Custom Styling
 st.markdown("""
     <style>
     div[data-baseweb="textarea"] textarea {
@@ -28,18 +29,19 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# File Paths
 CACHE_SCRIPT_FILE = "cached_script.txt"
 video_input_path = "original_video.mp4"
 extracted_mp3_path = "extracted_audio.mp3"
 raw_khmer_audio = "raw_khmer_audio.mp3"
 final_video_no_sub = "final_dubbed_audio_only.mp4"
 final_video_with_sub = "final_dubbed_with_sub.mp4"
-temp_clean_srt = "clean_subtitles.srt"
+ass_sub_path = "subtitles.ass"
 
 def hard_reset_all():
     files_to_delete = [
         CACHE_SCRIPT_FILE, video_input_path, extracted_mp3_path, 
-        raw_khmer_audio, final_video_no_sub, final_video_with_sub, temp_clean_srt,
+        raw_khmer_audio, final_video_no_sub, final_video_with_sub, ass_sub_path,
         "temp_dl_video.mp4", "temp_dl_audio.mp3", "t_raw_vid.mp4", "t_raw_aud.mp3"
     ]
     for f in files_to_delete:
@@ -47,12 +49,12 @@ def hard_reset_all():
             try: os.remove(f)
             except Exception: pass
             
-    for pattern in ["*.mp3", "*.wav", "*.mp4", "*.srt"]:
+    for pattern in ["*.mp3", "*.wav", "*.mp4", "*.srt", "*.ass"]:
         for f in glob.glob(pattern):
             try: os.remove(f)
             except Exception: pass
 
-    for p in glob.glob("temp_*") + glob.glob("raw_*") + glob.glob("t_raw_*") + ["temp_processing", "__pycache__"]:
+    for p in glob.glob("temp_*") + glob.glob("raw_*") + ["temp_processing", "__pycache__"]:
         if os.path.exists(p):
             try:
                 if os.path.isdir(p): shutil.rmtree(p, ignore_errors=True)
@@ -61,12 +63,11 @@ def hard_reset_all():
             
     st.session_state.clear()
 
-st.title("🎬 Khmer Dubbing Studio")
+st.title("🎬 Khmer Dubbing Studio Pro")
 
-# Reset UI
 col_info, col_reset = st.columns([3, 1])
 with col_info:
-    st.info("💡 ដំណើរការ៖ ១. បញ្ចូលវីដេអូ ➔ ២. បកប្រែ Script ➔ ៣. បង្កើតសំឡេង Auto-Sync ➔ ៤. ជ្រើសរើស Render")
+    st.info("💡 ដំណើរការ៖ ១. បញ្ចូលវីដេអូ ➔ ២. បកប្រែ Script ➔ ៣. បង្កើតសំឡេង Auto-Sync ➔ ៤. ជ្រើសរើស Render វីដេអូ")
 with col_reset:
     st.write("🧹 **Storage**")
     if st.button("🗑️ Reset All (លុប Data ទាំងអស់)", type="secondary", use_container_width=True):
@@ -124,7 +125,7 @@ def download_video_all(url, out_path):
         if os.path.exists(out_path) and os.path.getsize(out_path) > 1000: return True, "ជោគជ័យតាម yt-dlp"
     except Exception as e: return False, str(e)
         
-    return False, "មិនអាចទាញយកបានទេ"
+    return False, "មិនអាចទាញយកវីដេអូបានទេ"
 
 def parse_time_to_ms(t):
     t = t.replace(',', '.').strip()
@@ -132,6 +133,13 @@ def parse_time_to_ms(t):
     if len(p) == 3: return int((int(p[0]) * 3600 + int(p[1]) * 60 + float(p[2])) * 1000)
     elif len(p) == 2: return int((int(p[0]) * 60 + float(p[1])) * 1000)
     return 0
+
+def ms_to_ass_time(ms):
+    hrs = int(ms // 3600000)
+    mins = int((ms % 3600000) // 60000)
+    secs = int((ms % 60000) // 1000)
+    cs = int((ms % 1000) // 10)
+    return f"{hrs:01d}:{mins:02d}:{secs:02d}.{cs:02d}"
 
 def clean_speech_text(text):
     patterns = [
@@ -146,7 +154,7 @@ def clean_speech_text(text):
     for pat in patterns: cleaned = re.sub(pat, '', cleaned, flags=re.IGNORECASE).strip()
     return re.sub(r'^[\[\(].*?[\]\)]\s*[:：]?', '', cleaned).strip()
 
-def limit_to_single_line(text, max_len=42):
+def limit_to_single_line(text, max_len=40):
     if len(text) <= max_len:
         return text
     parts = text.split(" ")
@@ -204,6 +212,27 @@ def generate_and_fit_audio(text, voice, out_path, target_ms):
             if os.path.exists(out_path): os.remove(out_path)
             os.rename(temp_raw, out_path)
 
+def create_ass_file(items, out_ass):
+    header = """[Script Info]
+ScriptType: v4.00+
+PlayResX: 1280
+PlayResY: 720
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: KhmerSub,Noto Sans Khmer,30,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,0,2,20,20,35,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    with open(out_ass, "w", encoding="utf-8") as f:
+        f.write(header)
+        for it in items:
+            s_t = ms_to_ass_time(it["start"])
+            e_t = ms_to_ass_time(it["end"])
+            txt = limit_to_single_line(it["text"])
+            f.write(f"Dialogue: 0,{s_t},{e_t},KhmerSub,,0,0,0,,{txt}\n")
+
 # 2. Video Source
 st.subheader("📥 ២. ប្រភពវីដេអូដើម")
 input_opt = st.radio("វិធីសាស្ត្របញ្ចូលវីដេអូ៖", ["🔗 URL Link (TikTok / YouTube)", "📂 Upload File MP4"], key="v_opt")
@@ -216,7 +245,7 @@ if input_opt == "🔗 URL Link (TikTok / YouTube)":
             if os.path.exists(CACHE_SCRIPT_FILE): os.remove(CACHE_SCRIPT_FILE)
             if os.path.exists(video_input_path): os.remove(video_input_path)
             st_box = st.empty()
-            st_box.info("⏳ កំពុងទាញយកវីដេអូ និងសំឡេង...")
+            st_box.info("⏳ កំពុងទាញយកវីដេអូ...")
             ok, msg = download_video_all(url_in.strip(), video_input_path)
             if ok:
                 st_box.success("🎉 ទាញយកវីដេអូជោគជ័យ!")
@@ -235,31 +264,34 @@ if os.path.exists(video_input_path):
         if not gemini_key.strip(): st.error("❌ សូមបញ្ចូល Gemini API Key!")
         else:
             st_box = st.empty()
-            st_box.info("⏳ កំពុងបន្សុទ្ធសំឡេង...")
-            subprocess.run(["ffmpeg", "-y", "-i", video_input_path, "-vn", "-af", "highpass=f=100,lowpass=f=3500,volume=1.5", "-ar", "16000", "-ac", "1", "-b:a", "128k", extracted_mp3_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            st_box.info("⏳ កំពុងបន្សុទ្ធសំឡេងមនុស្សនិយាយ...")
+            subprocess.run(["ffmpeg", "-y", "-i", video_input_path, "-vn", "-af", "highpass=f=100,lowpass=f=3800,volume=1.8", "-ar", "16000", "-ac", "1", "-b:a", "128k", extracted_mp3_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
             if not os.path.exists(extracted_mp3_path) or os.path.getsize(extracted_mp3_path) < 1000:
                 st_box.error("❌ មិនអាចទាញយកសំឡេងបានទេ!")
             else:
                 try:
-                    st_box.info("✨ Gemini 3.6 Flash កំពុងស្ដាប់ & បកប្រែ...")
+                    st_box.info("✨ Gemini 3.6 Flash កំពុងស្ដាប់គ្រប់វិនាទី & បកប្រែពេញលេញ...")
                     client = genai.Client(api_key=gemini_key.strip())
                     audio_file = client.files.upload(file=extracted_mp3_path)
                     prompt = (
-                        "Transcribe the spoken dialogue in chronological order and translate it accurately into Khmer. "
-                        "Keep each subtitle line concise (1 single line). "
-                        "Add speaker tag [ប្រុស] if Male or [ស្រី] if Female at start of each line. "
-                        "Format strictly as SubRip (.srt) with timestamps (00:00:00,000 --> 00:00:00,000). "
-                        "Return ONLY raw SRT text without markdown blocks."
+                        "CRITICAL INSTRUCTIONS FOR FULL AUDIO DUBBING TRANSCRIPTION:\n"
+                        "1. Listen to the ENTIRE audio file from the first second to the very last second without stopping.\n"
+                        "2. Transcribe EVERY single dialogue and conversation. DO NOT summarize, DO NOT skip any scene or silence.\n"
+                        "3. Translate every dialogue accurately into natural spoken Khmer.\n"
+                        "4. Maintain precise timestamps for each line.\n"
+                        "5. Tag every line with '[ប្រុស]' (Male) or '[ស្រី]' (Female) at the start.\n"
+                        "6. Keep each subtitle line concise (1 single line) for smooth dubbing sync.\n"
+                        "7. Return the result STRICTLY in valid SubRip (.srt) subtitle format without markdown formatting."
                     )
                     response = client.models.generate_content(
                         model='gemini-3.6-flash',
                         contents=[audio_file, prompt],
-                        config={'temperature': 0.0, 'top_p': 0.95}
+                        config={'temperature': 0.0, 'top_p': 0.95, 'max_output_tokens': 8192}
                     )
                     res_text = response.text.replace("```srt", "").replace("```", "").strip()
                     with open(CACHE_SCRIPT_FILE, "w", encoding="utf-8") as f: f.write(res_text)
-                    st_box.success("🎉 Gemini 3.6 Flash បានបកប្រែរួចរាល់!")
+                    st_box.success("🎉 Gemini 3.6 Flash បានបកប្រែរួចរាល់ពេញលេញ!")
                     st.rerun()
                 except Exception as e: st_box.error(f"❌ កំហុស Gemini៖ {e}")
 
@@ -276,7 +308,7 @@ v_choice = st.selectbox("🎙️ សំឡេងអាន៖", ["🤖 អូត�
 
 st.divider()
 
-# 4. Step 1: TTS Generation
+# 4. Step 1: TTS Audio Generation (Cached)
 st.subheader("🔊 ៤. ជំហានទី ១៖ បង្កើតសំឡេង Auto-Sync (TTS)")
 if st.button("🎙️ ចាប់ផ្ដើមបង្កើតសំឡេង Auto-Sync (MP3)", type="primary"):
     raw_text = user_script.strip()
@@ -310,7 +342,7 @@ if st.button("🎙️ ចាប់ផ្ដើមបង្កើតសំឡេ�
                 prog.progress(int((idx + 1) / total * 100))
                 
             combined.export(raw_khmer_audio, format="mp3")
-            status.success(f"🎉 បង្កើតសំឡេង Auto-Sync គ្រប់ {total} ជួររួចរាល់!")
+            status.success(f"🎉 បង្កើតសំឡេង Auto-Sync គ្រប់ {total} ជួររួចរាល់! អាច Render វីដេអូបានភ្លាមៗ។")
             st.rerun()
 
 if os.path.exists(raw_khmer_audio):
@@ -320,7 +352,7 @@ if os.path.exists(raw_khmer_audio):
 
 st.divider()
 
-# 5. Step 2: Render Options
+# 5. Step 2: Render Options (Using Cached Audio)
 st.subheader("🎬 ៥. ជំហានទី ២៖ ជ្រើសរើស Render វីដេអូ (ប្រើសំឡេងស្រាប់)")
 
 col_r1, col_r2 = st.columns(2)
@@ -364,21 +396,17 @@ with col_r2:
             st.error("❌ សូមចុចបង្កើតសំឡេង (ជំហានទី ៤) ជាមុនសិន!")
         else:
             status_box = st.empty()
-            status_box.info("⏳ កំពុងដុត Subtitle ខ្មែរ (Unicode) និង Merge សំឡេង...")
+            status_box.info("⏳ កំពុងដុត Subtitle ខ្មែរ (ASS) និង Merge សំឡេង...")
             
+            # បង្កើត ASS Subtitle
             items = parse_srt(user_script.strip(), v_choice)
-            with open(temp_clean_srt, "w", encoding="utf-8") as sf:
-                for i, it in enumerate(items):
-                    short_line = limit_to_single_line(it['text'])
-                    sf.write(f"{i+1}\n{it['start_str']} --> {it['end_str']}\n{short_line}\n\n")
-            
-            v_filter = f"subtitles={temp_clean_srt}:force_style='Fontname=Noto Sans Khmer,FontSize=16,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=1.5,Shadow=0,Alignment=2,MarginV=30'"
+            create_ass_file(items, ass_sub_path)
             
             ffmpeg_cmd = [
                 "ffmpeg", "-y",
                 "-i", video_input_path,
                 "-i", raw_khmer_audio,
-                "-vf", v_filter,
+                "-vf", f"ass={ass_sub_path}",
                 "-c:a", "aac",
                 "-map", "0:v:0",
                 "-map", "1:a:0",
@@ -386,7 +414,6 @@ with col_r2:
                 final_video_with_sub
             ]
             subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-            if os.path.exists(temp_clean_srt): os.remove(temp_clean_srt)
             status_box.success("🎉 Render វីដេអូ + Subtitle ខ្មែរ រួចរាល់!")
             st.rerun()
 
@@ -394,4 +421,4 @@ with col_r2:
         st.video(final_video_with_sub)
         with open(final_video_with_sub, "rb") as vf2:
             st.download_button("📥 Download Video (+ Subtitle)", vf2, file_name="dubbed_video_with_sub.mp4", use_container_width=True)
-                             
+
