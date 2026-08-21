@@ -1,4 +1,3 @@
-cat << 'EOF' > app.py
 import streamlit as st
 import os
 import re
@@ -148,7 +147,6 @@ def clean_speech_text(text):
     return re.sub(r'^[\[\(].*?[\]\)]\s*[:：]?', '', cleaned).strip()
 
 def limit_to_single_line(text, max_len=42):
-    # បង្រួមអក្សរឱ្យនៅត្រឹម ១ ជួរខ្លី មិនបាំងវីដេអូ
     if len(text) <= max_len:
         return text
     parts = text.split(" ")
@@ -278,7 +276,7 @@ v_choice = st.selectbox("🎙️ សំឡេងអាន៖", ["🤖 អូត�
 
 st.divider()
 
-# 4. Step 1: TTS Generation (បង្កើតសំឡេងតែម្តងគត់)
+# 4. Step 1: TTS Generation
 st.subheader("🔊 ៤. ជំហានទី ១៖ បង្កើតសំឡេង Auto-Sync (TTS)")
 if st.button("🎙️ ចាប់ផ្ដើមបង្កើតសំឡេង Auto-Sync (MP3)", type="primary"):
     raw_text = user_script.strip()
@@ -312,10 +310,9 @@ if st.button("🎙️ ចាប់ផ្ដើមបង្កើតសំឡេ�
                 prog.progress(int((idx + 1) / total * 100))
                 
             combined.export(raw_khmer_audio, format="mp3")
-            status.success(f"🎉 បង្កើតសំឡេង Auto-Sync គ្រប់ {total} ជួររួចរាល់! អាចយកទៅ Render បានភ្លាមៗ។")
+            status.success(f"🎉 បង្កើតសំឡេង Auto-Sync គ្រប់ {total} ជួររួចរាល់!")
             st.rerun()
 
-# បង្ហាញ Player សំឡេង បើសិនបានបង្កើតរួច
 if os.path.exists(raw_khmer_audio):
     st.audio(raw_khmer_audio, format="audio/mp3")
     with open(raw_khmer_audio, "rb") as af:
@@ -323,7 +320,7 @@ if os.path.exists(raw_khmer_audio):
 
 st.divider()
 
-# 5. Step 2: Render Options (ប្រើសំឡេងដែលមានស្រាប់ មិនចាំបាច់បង្កើតស្ទួន)
+# 5. Step 2: Render Options
 st.subheader("🎬 ៥. ជំហានទី ២៖ ជ្រើសរើស Render វីដេអូ (ប្រើសំឡេងស្រាប់)")
 
 col_r1, col_r2 = st.columns(2)
@@ -337,7 +334,7 @@ with col_r1:
             st.error("❌ សូមចុចបង្កើតសំឡេង (ជំហានទី ៤) ជាមុនសិន!")
         else:
             status_box = st.empty()
-            status_box.info("⏳ កំពុង Merge សំឡេងចូលវីដេអូ (លឿនបំផុត)...")
+            status_box.info("⏳ កំពុង Merge សំឡេងចូលវីដេអូ...")
             ffmpeg_cmd = [
                 "ffmpeg", "-y",
                 "-i", video_input_path,
@@ -369,14 +366,12 @@ with col_r2:
             status_box = st.empty()
             status_box.info("⏳ កំពុងដុត Subtitle ខ្មែរ (Unicode) និង Merge សំឡេង...")
             
-            # បង្កើត SRT ស្អាត គ្មាន Tag និងកាត់ត្រឹម ១ ជួរ
             items = parse_srt(user_script.strip(), v_choice)
             with open(temp_clean_srt, "w", encoding="utf-8") as sf:
                 for i, it in enumerate(items):
                     short_line = limit_to_single_line(it['text'])
                     sf.write(f"{i+1}\n{it['start_str']} --> {it['end_str']}\n{short_line}\n\n")
             
-            # Burn Subtitle ដោយកំណត់ Font Noto Sans Khmer ច្បាស់ គ្មាន box បាំង
             v_filter = f"subtitles={temp_clean_srt}:force_style='Fontname=Noto Sans Khmer,FontSize=16,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=1.5,Shadow=0,Alignment=2,MarginV=30'"
             
             ffmpeg_cmd = [
@@ -399,5 +394,4 @@ with col_r2:
         st.video(final_video_with_sub)
         with open(final_video_with_sub, "rb") as vf2:
             st.download_button("📥 Download Video (+ Subtitle)", vf2, file_name="dubbed_video_with_sub.mp4", use_container_width=True)
-EOF
-                  
+                             
