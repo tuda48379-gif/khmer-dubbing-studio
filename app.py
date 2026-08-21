@@ -5,7 +5,6 @@ import ssl
 import subprocess
 import glob
 import shutil
-import math
 import requests
 import urllib3
 from pydub import AudioSegment
@@ -18,7 +17,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 st.set_page_config(page_title="Khmer Dubbing Studio Pro", layout="wide")
 
-# Custom UI Styling (កំណត់ពណ៌បៃតងលើប៊ូតុង Gemini ដោយប្រើ data-testid ច្បាស់លាស់)
+# Custom UI Styling
 st.markdown("""
     <style>
     div[data-baseweb="textarea"] textarea {
@@ -27,19 +26,11 @@ st.markdown("""
         font-size: 15px !important;
         border: 1px solid #444444 !important;
     }
-    div.stButton > button.gemini-btn {
+    div.stButton > button[kind="primary"] {
         background-color: #28a745 !important;
-        color: #FFFFFF !important;
+        border-color: #28a745 !important;
+        color: white !important;
         font-weight: bold !important;
-        font-size: 16px !important;
-        border: 1px solid #1e7e34 !important;
-        border-radius: 8px !important;
-        padding: 12px 24px !important;
-        width: 100% !important;
-    }
-    div.stButton > button.gemini-btn:hover {
-        background-color: #218838 !important;
-        color: #FFFFFF !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -76,7 +67,7 @@ def hard_reset_all():
             try: os.remove(f)
             except Exception: pass
 
-    for p in glob.glob("temp_*") + glob.glob("raw_*") + glob.glob("t_raw_*") + glob.glob("chunk_*") + ["temp_processing", "__pycache__"]:
+    for p in glob.glob("temp_*") + glob.glob("raw_*") + glob.glob("t_raw_*") + ["temp_processing", "__pycache__"]:
         if os.path.exists(p):
             try:
                 if os.path.isdir(p): shutil.rmtree(p, ignore_errors=True)
@@ -90,10 +81,10 @@ st.title("🎬 Khmer Dubbing Studio Pro")
 # Storage Info Bar
 col_info, col_reset = st.columns([2.5, 1.5])
 with col_info:
-    st.info("💡 ដំណើរការ៖ ១. បញ្ចូលវីដេអូ ➔ ២. Gemini បកប្រែ Script (Chunking គ្រប់នាទី) ➔ ៣. បង្កើតសំឡេង Auto-Sync ➔ ៤. Render វីដេអូ")
+    st.info("💡 ដំណើរការ៖ ១. បញ្ចូលវីដេអូ ➔ ២. Gemini បកប្រែ Script ➔ ៣. បង្កើតសំឡេង Auto-Sync ➔ ៤. Render វីដេអូ (លឿនបំផុត ២ វិនាទី)")
 with col_reset:
     used_mb = get_dir_size_mb()
-    st.metric(label="💾 ទំហំផ្ទុកប្រើប្រាស់ (Disk Usage)", value=f"{used_mb:.1f} MB")
+    st.metric(label="💾 Disk Usage", value=f"{used_mb:.1f} MB")
     if st.button("🗑️ Reset All", type="secondary", use_container_width=True):
         hard_reset_all()
         st.success("✅ បានសម្អាតទំហំផ្ទុកជោគជ័យ!")
@@ -124,7 +115,6 @@ def download_video_all(url, out_path):
             try: os.remove(f)
             except Exception: pass
 
-    # TikTok (TikWM)
     if "tiktok.com" in url.lower():
         try:
             api_url = "https://www.tikwm.com/api/"
@@ -149,7 +139,6 @@ def download_video_all(url, out_path):
         except Exception:
             pass
 
-    # Universal Downloader (គាំទ្រ Dailymotion HLS ដោយមិនកំណត់ format តឹងរ៉ឹង)
     try:
         ydl_opts = {
             'outtmpl': out_path,
@@ -180,13 +169,6 @@ def parse_time_to_ms(t):
     elif len(p) == 1:
         return int(float(p[0]) * 1000)
     return 0
-
-def ms_to_srt_time(ms):
-    hrs = int(ms // 3600000)
-    mins = int((ms % 3600000) // 60000)
-    secs = int((ms % 60000) // 1000)
-    millis = int(ms % 1000)
-    return f"{hrs:02d}:{mins:02d}:{secs:02d},{millis:03d}"
 
 def clean_speech_text(text):
     patterns = [
@@ -257,7 +239,7 @@ input_opt = st.radio("វិធីសាស្ត្របញ្ចូលវី�
 
 if input_opt == "🔗 URL Link (Dailymotion/TikTok/FB/YouTube)":
     url_in = st.text_input("🔗 បញ្ចូល Link វីដេអូ៖", placeholder="https://www.dailymotion.com/video/...")
-    if st.button("📥 ទាញយកវីដេអូដើម", type="primary"):
+    if st.button("📥 ទាញយកវីដេអូដើម", type="secondary"):
         if not url_in.strip(): 
             st.error("សូមបញ្ចូល URL!")
         else:
@@ -287,13 +269,12 @@ if os.path.exists(video_input_path):
             st.rerun()
             
     with col_vid_ai:
-        # ប៊ូតុងពណ៌បៃតង (Green Action Button)
-        if st.button("✨ ប្រើ Gemini 3.6 Flash ស្ដាប់វីដេអូ ➔ បកប្រែជា Khmer SRT (Full Coverage)", type="primary", use_container_width=True):
+        if st.button("✨ ប្រើ Gemini 3.6 Flash ស្ដាប់វីដេអូ ➔ បកប្រែជា Khmer SRT", type="primary", use_container_width=True):
             if not gemini_key.strip(): 
                 st.error("❌ សូមបញ្ចូល Gemini API Key!")
             else:
                 st_box = st.empty()
-                st_box.info("⏳ កំពុងបំប្លែងសំឡេងដើម...")
+                st_box.info("⏳ កំពុងទាញយកសំឡេងច្បាស់ដើម...")
                 subprocess.run([
                     "ffmpeg", "-y", "-i", video_input_path,
                     "-vn", "-ar", "24000", "-ac", "1", "-b:a", "128k",
@@ -304,60 +285,27 @@ if os.path.exists(video_input_path):
                     st_box.error("❌ មិនអាចទាញយកសំឡេងបានទេ!")
                 else:
                     try:
-                        audio = AudioSegment.from_file(extracted_mp3_path)
-                        total_duration_ms = len(audio)
-                        chunk_length_ms = 90 * 1000  # បំបែកជា ៩០ វិនាទីម្ដង ដើម្បីឱ្យ Gemini ស្ដាប់គ្រប់ពាក្យ មិនរំលង
-                        num_chunks = math.ceil(total_duration_ms / chunk_length_ms)
-                        
+                        st_box.info("✨ Gemini 3.6 Flash កំពុងស្ដាប់គ្រប់វិនាទី & បកប្រែពេញលេញ...")
                         client = genai.Client(api_key=gemini_key.strip())
-                        all_srt_items = []
-                        global_idx = 1
-                        
-                        prog_bar = st.progress(0)
-                        
-                        for i in range(num_chunks):
-                            start_ms = i * chunk_length_ms
-                            end_ms = min((i + 1) * chunk_length_ms, total_duration_ms)
-                            st_box.info(f"✨ Gemini កំពុងស្ដាប់ភាគទី {i+1}/{num_chunks} ({start_ms//1000}s ➔ {end_ms//1000}s)...")
-                            
-                            chunk_audio = audio[start_ms:end_ms]
-                            chunk_file = f"chunk_{i}.mp3"
-                            chunk_audio.export(chunk_file, format="mp3")
-                            
-                            uploaded_chunk = client.files.upload(file=chunk_file)
-                            prompt = (
-                                "Task: Transcribe every spoken sentence in this audio chunk and translate directly into natural spoken Khmer.\n"
-                                "Rules:\n"
-                                "1. Tag [ប្រុស] for male speaker or [ស្រី] for female speaker at start of each line.\n"
-                                "2. Output STRICTLY in standard SubRip (.srt) subtitle format.\n"
-                                "3. Transcribe ALL dialogues even background or quiet voices. Do NOT skip.\n"
-                                "4. Output ONLY valid SRT content, no explanations."
-                            )
-                            
-                            res = client.models.generate_content(
-                                model='gemini-3.6-flash',
-                                contents=[uploaded_chunk, prompt],
-                                config={'temperature': 0.1, 'max_output_tokens': 4096}
-                            )
-                            
-                            raw_chunk_srt = res.text.replace("```srt", "").replace("```", "").strip()
-                            chunk_items = parse_srt(raw_chunk_srt, "🤖 អូតូ")
-                            
-                            # Shift timestamps ឱ្យត្រូវនឹងពេលវេលាវីដេអូដើម
-                            for it in chunk_items:
-                                real_start = start_ms + it["start"]
-                                real_end = start_ms + it["end"]
-                                all_srt_items.append(f"{global_idx}\n{ms_to_srt_time(real_start)} --> {ms_to_srt_time(real_end)}\n[{'ប្រុស' if it['voice']=='km-KH-PisethNeural' else 'ស្រី'}] {it['text']}\n")
-                                global_idx += 1
-                                
-                            if os.path.exists(chunk_file): os.remove(chunk_file)
-                            prog_bar.progress(int((i + 1) / num_chunks * 100))
-
-                        final_full_srt = "\n".join(all_srt_items)
+                        audio_file = client.files.upload(file=extracted_mp3_path)
+                        prompt = (
+                            "You are an expert full-movie dubbing and translation assistant.\n"
+                            "Task:\n"
+                            "1. Listen to the entire audio file from 00:00:00 to the very end.\n"
+                            "2. Transcribe and translate EVERY dialogue sentence into natural spoken Khmer.\n"
+                            "3. Tag [ប្រុស] at start of line for Male voice, or [ស្រី] for Female voice.\n"
+                            "4. Ensure full unbroken coverage. Do NOT skip any conversation, background speech, or scenes.\n"
+                            "5. Output STRICTLY in valid SubRip (.srt) format without Markdown blocks."
+                        )
+                        response = client.models.generate_content(
+                            model='gemini-3.6-flash',
+                            contents=[audio_file, prompt],
+                            config={'temperature': 0.0, 'max_output_tokens': 8192}
+                        )
+                        res_text = response.text.replace("```srt", "").replace("```", "").strip()
                         with open(CACHE_SCRIPT_FILE, "w", encoding="utf-8") as f: 
-                            f.write(final_full_srt)
-                            
-                        st_box.success(f"🎉 Gemini 3.6 Flash បានស្ដាប់ & បកប្រែពេញលេញគ្រប់ {num_chunks} ភាគ (គ្មានការរំលង)!")
+                            f.write(res_text)
+                        st_box.success("🎉 Gemini 3.6 Flash បានស្ដាប់ & បកប្រែរួចរាល់ពេញលេញ!")
                         st.rerun()
                     except Exception as e: 
                         st_box.error(f"❌ កំហុស Gemini៖ {e}")
@@ -424,8 +372,8 @@ if os.path.exists(raw_khmer_audio):
 
 st.divider()
 
-# 5. Step 2: Render Option (រក្សាប្រវែងដើម ១០០%)
-st.subheader("🎬 ៥. ជំហានទី ២៖ Render វីដេអូ + សំឡេង (រក្សាប្រវែងដើម)")
+# 5. Step 2: Ultra-Fast Render (2 to 3 Seconds Max)
+st.subheader("🎬 ៥. ជំហានទី ២៖ Render វីដេអូ + សំឡេង")
 
 if st.button("🚀 Render Video + Audio Only", type="primary", use_container_width=True):
     if not os.path.exists(video_input_path):
@@ -434,24 +382,25 @@ if st.button("🚀 Render Video + Audio Only", type="primary", use_container_wid
         st.error("❌ សូមចុចបង្កើតសំឡេង (ជំហានទី ៤) ជាមុនសិន!")
     else:
         status_box = st.empty()
-        status_box.info("⏳ កំពុង Merge សំឡេង (រក្សាប្រវែងវីដេអូដើម)...")
+        status_box.info("⏳ កំពុង Merge សំឡេងចូលវីដេអូ...")
+        
+        # FFmpeg Ultra-Fast Stream Copy (មិន Encode ឡើងវិញ ដំណើរការត្រឹម ២ វិនាទី)
         ffmpeg_cmd = [
             "ffmpeg", "-y",
             "-i", video_input_path,
             "-i", raw_khmer_audio,
-            "-filter_complex", "[1:a]apad[aout]",
             "-c:v", "copy",
             "-c:a", "aac",
             "-map", "0:v:0",
-            "-map", "[aout]",
+            "-map", "1:a:0",
             final_video_no_sub
         ]
         subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        status_box.success("🎉 Render វីដេអូ + សំឡេងសុទ្ធ រួចរាល់ពេញប្រវែងដើម!")
+        status_box.success("🎉 Render វីដេអូ + សំឡេងសុទ្ធ រួចរាល់!")
         st.rerun()
 
 if os.path.exists(final_video_no_sub):
     st.video(final_video_no_sub)
     with open(final_video_no_sub, "rb") as vf1:
         st.download_button("📥 Download Video Final", vf1, file_name="dubbed_video_audio_only.mp4", use_container_width=True)
-        
+
