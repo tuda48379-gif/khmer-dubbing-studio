@@ -66,7 +66,7 @@ st.title("🎬 Khmer Dubbing Studio Pro")
 
 col_info, col_reset = st.columns([3, 1])
 with col_info:
-    st.info("💡 ដំណើរការ៖ ១. បញ្ចូលវីដេអូ ➔ ២. បកប្រែ Script ➔ ៣. បង្កើតសំឡេង Auto-Sync ➔ ៤. Render វីដេអូ")
+    st.info("💡 ដំណើរការ៖ ១. បញ្ចូលវីដេអូ ➔ ២. បកប្រែ Script ➔ ៣. បង្កើតសំឡេង Auto-Sync ➔ ៤. Render វីដេអូពេញប្រវែងដើម")
 with col_reset:
     st.write("🧹 **Storage & Cache**")
     if st.button("🗑️ Reset All (លុប Data ទាំងអស់)", type="secondary", use_container_width=True):
@@ -111,7 +111,7 @@ def download_video_all(url, out_path):
                 if m_url:
                     ra = requests.get(m_url, headers=headers, verify=False, timeout=20)
                     with open(t_aud, "wb") as f: f.write(ra.content)
-                    subprocess.run(["ffmpeg", "-y", "-i", t_vid, "-i", t_aud, "-c:v", "copy", "-c:a", "aac", "-shortest", out_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.run(["ffmpeg", "-y", "-i", t_vid, "-i", t_aud, "-c:v", "copy", "-c:a", "aac", out_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     if os.path.exists(t_aud): os.remove(t_aud)
                 else:
                     if os.path.exists(out_path): os.remove(out_path)
@@ -122,9 +122,30 @@ def download_video_all(url, out_path):
         except Exception:
             pass
 
-    # 2. yt-dlp Universal Formats
-    clients = [['mweb'], ['ios'], ['android'], ['web']]
-    last_err = ""
+    # 2. ប្រើ Cobalt API Fallback សម្រាប់ដោះស្រាយ YouTube Bot Block
+    cobalt_instances = [
+        "https://co.wuk.sh/api/json",
+        "https://api.cobalt.tools/api/json",
+        "https://cobalt.api.kwiatekm.com/api/json"
+    ]
+    for c_api in cobalt_instances:
+        try:
+            headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+            payload = {"url": url, "vQuality": "720"}
+            res = requests.post(c_api, headers=headers, json=payload, timeout=12).json()
+            dl_url = res.get("url")
+            if dl_url:
+                r = requests.get(dl_url, stream=True, timeout=30)
+                with open(out_path, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=1024*1024):
+                        if chunk: f.write(chunk)
+                if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
+                    return True, "ជោគជ័យតាម Cobalt API"
+        except Exception:
+            continue
+
+    # 3. yt-dlp Multi-client Fallback
+    clients = [['mweb'], ['ios'], ['android']]
     for c in clients:
         try:
             ydl_opts = {
@@ -140,11 +161,10 @@ def download_video_all(url, out_path):
                 ydl.download([url])
             if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
                 return True, "ជោគជ័យ"
-        except Exception as e:
-            last_err = str(e)
+        except Exception:
             continue
             
-    return False, f"កំហុស YouTube៖ {last_err}"
+    return False, "YouTube បានដាក់កំហិត Bot Block លើ Server។ ប្រសិនបើ Link នៅតែទាញយកមិនបាន សូមប្រើជម្រើស Upload File MP4 ជំនួសវិញ។"
 
 def parse_time_to_ms(t):
     t = t.replace(',', '.').strip()
@@ -285,9 +305,7 @@ if os.path.exists(video_input_path):
             st.error("❌ សូមបញ្ចូល Gemini API Key!")
         else:
             st_box = st.empty()
-            st_box.info("⏳ កំពុងទាញយកសំឡេងធម្មជាតិច្បាស់...")
-            
-            # ទាញយកសំឡេងសុទ្ធ មិនកាត់ Filter ច្រើនពេក ដើម្បីកុំឱ្យបាត់ពាក្យ
+            st_box.info("⏳ កំពុងទាញយកសំឡេងច្បាស់ដើម...")
             subprocess.run([
                 "ffmpeg", "-y", "-i", video_input_path,
                 "-vn", "-ar", "24000", "-ac", "1", "-b:a", "128k",
@@ -302,12 +320,12 @@ if os.path.exists(video_input_path):
                     client = genai.Client(api_key=gemini_key.strip())
                     audio_file = client.files.upload(file=extracted_mp3_path)
                     prompt = (
-                        "You are an expert subtitle translator. Task:\n"
-                        "1. Listen to the entire audio carefully and transcribe every spoken line.\n"
-                        "2. Translate all lines into natural, spoken Khmer.\n"
-                        "3. Tag [ប្រុស] if male speaker, [ស្រី] if female speaker at the start of each line.\n"
-                        "4. Output strictly in valid SubRip (.srt) format with continuous timestamps from start to finish.\n"
-                        "5. Do not skip any dialogue or background voices. Return ONLY raw SRT."
+                        "You are an expert movie translator. Your goal is 100% full coverage.\n"
+                        "1. Listen to the entire audio file from beginning to end.\n"
+                        "2. Transcribe every spoken sentence and translate directly into natural spoken Khmer.\n"
+                        "3. Tag [ប្រុស] for male voice or [ស្រី] for female voice at start of each line.\n"
+                        "4. Output strictly in valid SubRip (.srt) subtitle format.\n"
+                        "5. Do not skip dialogues. Output raw SRT only."
                     )
                     response = client.models.generate_content(
                         model='gemini-3.6-flash',
@@ -382,8 +400,8 @@ if os.path.exists(raw_khmer_audio):
 
 st.divider()
 
-# 5. Step 2: Render Options
-st.subheader("🎬 ៥. ជំហានទី ២៖ ជ្រើសរើស Render វីដេអូ (ប្រើសំឡេងស្រាប់)")
+# 5. Step 2: Render Options (រក្សាប្រវែងវីដេអូដើមពេញលេញ ១០០% ដោយមិនកាត់ខ្លីតាមសំឡេង)
+st.subheader("🎬 ៥. ជំហានទី ២៖ ជ្រើសរើស Render វីដេអូ (រក្សាប្រវែងដើម)")
 
 col_r1, col_r2 = st.columns(2)
 
@@ -396,20 +414,20 @@ with col_r1:
             st.error("❌ សូមចុចបង្កើតសំឡេង (ជំហានទី ៤) ជាមុនសិន!")
         else:
             status_box = st.empty()
-            status_box.info("⏳ កំពុង Merge សំឡេងចូលវីដេអូ...")
+            status_box.info("⏳ កំពុង Merge សំឡេង (រក្សាប្រវែងវីដេអូដើម)...")
             ffmpeg_cmd = [
                 "ffmpeg", "-y",
                 "-i", video_input_path,
                 "-i", raw_khmer_audio,
+                "-filter_complex", "[1:a]apad[aout]",
                 "-c:v", "copy",
                 "-c:a", "aac",
                 "-map", "0:v:0",
-                "-map", "1:a:0",
-                "-shortest",
+                "-map", "[aout]",
                 final_video_no_sub
             ]
             subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-            status_box.success("🎉 Render វីដេអូ + សំឡេងសុទ្ធ រួចរាល់!")
+            status_box.success("🎉 Render វីដេអូ + សំឡេងសុទ្ធ រួចរាល់ពេញប្រវែងដើម!")
             st.rerun()
 
     if os.path.exists(final_video_no_sub):
@@ -426,7 +444,7 @@ with col_r2:
             st.error("❌ សូមចុចបង្កើតសំឡេង (ជំហានទី ៤) ជាមុនសិន!")
         else:
             status_box = st.empty()
-            status_box.info("⏳ កំពុងដុត Subtitle ខ្មែរ (ASS) និង Merge សំឡេង...")
+            status_box.info("⏳ កំពុងដុត Subtitle ខ្មែរ (ASS) និង Merge សំឡេងពេញប្រវែងដើម...")
             
             items = parse_srt(user_script.strip(), v_choice)
             create_ass_file(items, ass_sub_path)
@@ -435,19 +453,17 @@ with col_r2:
                 "ffmpeg", "-y",
                 "-i", video_input_path,
                 "-i", raw_khmer_audio,
-                "-vf", f"ass={ass_sub_path}",
+                "-filter_complex", f"[0:v]ass={ass_sub_path}[vout];[1:a]apad[aout]",
                 "-c:a", "aac",
-                "-map", "0:v:0",
-                "-map", "1:a:0",
-                "-shortest",
+                "-map", "[vout]",
+                "-map", "[aout]",
                 final_video_with_sub
             ]
             subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-            status_box.success("🎉 Render វីដេអូ + Subtitle ខ្មែរ រួចរាល់!")
+            status_box.success("🎉 Render វីដេអូ + Subtitle ខ្មែរ រួចរាល់ពេញប្រវែងដើម!")
             st.rerun()
 
     if os.path.exists(final_video_with_sub):
         st.video(final_video_with_sub)
         with open(final_video_with_sub, "rb") as vf2:
             st.download_button("📥 Download Video (+ Subtitle)", vf2, file_name="dubbed_video_with_sub.mp4", use_container_width=True)
-
