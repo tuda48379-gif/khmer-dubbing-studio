@@ -11,13 +11,13 @@ from pydub import AudioSegment
 import yt_dlp
 from google import genai
 
-# Bypass SSL
+# Setup SSL & Warnings
 ssl._create_default_https_context = ssl._create_unverified_context
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 st.set_page_config(page_title="Khmer Dubbing Studio Pro", layout="wide")
 
-# Custom Styling
+# Custom UI Styling
 st.markdown("""
     <style>
     div[data-baseweb="textarea"] textarea {
@@ -54,7 +54,7 @@ def hard_reset_all():
             try: os.remove(f)
             except Exception: pass
 
-    for p in glob.glob("temp_*") + glob.glob("raw_*") + ["temp_processing", "__pycache__"]:
+    for p in glob.glob("temp_*") + glob.glob("raw_*") + glob.glob("t_raw_*") + ["temp_processing", "__pycache__"]:
         if os.path.exists(p):
             try:
                 if os.path.isdir(p): shutil.rmtree(p, ignore_errors=True)
@@ -69,7 +69,7 @@ col_info, col_reset = st.columns([3, 1])
 with col_info:
     st.info("💡 ដំណើរការ៖ ១. បញ្ចូលវីដេអូ ➔ ២. បកប្រែ Script ➔ ៣. បង្កើតសំឡេង Auto-Sync ➔ ៤. ជ្រើសរើស Render វីដេអូ")
 with col_reset:
-    st.write("🧹 **Storage**")
+    st.write("🧹 **Storage & Cache**")
     if st.button("🗑️ Reset All (លុប Data ទាំងអស់)", type="secondary", use_container_width=True):
         hard_reset_all()
         st.success("✅ បាន Reset រួចរាល់!")
@@ -85,12 +85,17 @@ st.divider()
 
 def has_audio_stream(file_path):
     try:
-        chk = subprocess.run(["ffprobe", "-i", file_path, "-show_streams", "-select_streams", "a", "-loglevel", "error"], capture_output=True, text=True)
+        chk = subprocess.run(
+            ["ffprobe", "-i", file_path, "-show_streams", "-select_streams", "a", "-loglevel", "error"],
+            capture_output=True, text=True
+        )
         return bool(chk.stdout.strip())
-    except: return False
+    except Exception:
+        return False
 
 def download_video_all(url, out_path):
     url = url.strip()
+    # 1. សាកល្បងជាមួយ TikWM ប្រសិនបើជា Link TikTok
     if "tiktok.com" in url.lower():
         try:
             api_url = "https://www.tikwm.com/api/"
@@ -116,16 +121,34 @@ def download_video_all(url, out_path):
                     os.rename(t_vid, out_path)
                     
                 if os.path.exists(t_vid): os.remove(t_vid)
-                if os.path.exists(out_path) and has_audio_stream(out_path): return True, "ជោគជ័យតាម TikWM"
-        except Exception: pass
+                if os.path.exists(out_path) and has_audio_stream(out_path):
+                    return True, "ជោគជ័យតាម TikWM"
+        except Exception:
+            pass
 
+    # 2. ប្រើ yt-dlp ជាមួយ Android Client សម្រាប់ YouTube/TikTok
     try:
-        ydl_opts = {'format': 'bestvideo+bestaudio/best', 'outtmpl': out_path, 'nocheckcertificate': True, 'merge_output_format': 'mp4', 'quiet': True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([url])
-        if os.path.exists(out_path) and os.path.getsize(out_path) > 1000: return True, "ជោគជ័យតាម yt-dlp"
-    except Exception as e: return False, str(e)
+        ydl_opts = {
+            'format': 'best[ext=mp4]/best',
+            'outtmpl': out_path,
+            'nocheckcertificate': True,
+            'quiet': True,
+            'no_warnings': True,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'web']
+                }
+            }
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+            
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
+            return True, "ជោគជ័យតាម yt-dlp"
+    except Exception as e:
+        return False, str(e)
         
-    return False, "មិនអាចទាញយកវីដេអូបានទេ"
+    return False, "មិនអាចទាញយកវីដេអូបានទេ សូមពិនិត្យមើល Link ឡើងវិញ"
 
 def parse_time_to_ms(t):
     t = t.replace(',', '.').strip()
@@ -151,7 +174,8 @@ def clean_speech_text(text):
         r'^(ប្រុស|male|man|boy|m)\s*[:：\-]\s*'
     ]
     cleaned = text
-    for pat in patterns: cleaned = re.sub(pat, '', cleaned, flags=re.IGNORECASE).strip()
+    for pat in patterns:
+        cleaned = re.sub(pat, '', cleaned, flags=re.IGNORECASE).strip()
     return re.sub(r'^[\[\(].*?[\]\)]\s*[:：]?', '', cleaned).strip()
 
 def limit_to_single_line(text, max_len=40):
@@ -182,11 +206,13 @@ def parse_srt(srt_text, mode):
                     if any(k in sp.lower() for k in ["ស្រី", "female", "(f)", "[f]", "woman"]): v = "km-KH-SreymomNeural"
                 elif "👩" in mode: v = "km-KH-SreymomNeural"
                 cl = clean_speech_text(sp)
-                if cl: items.append({"start": parse_time_to_ms(curr_start), "end": parse_time_to_ms(curr_end), "text": cl, "voice": v, "start_str": curr_start, "end_str": curr_end})
+                if cl: items.append({"start": parse_time_to_ms(curr_start), "end": parse_time_to_ms(curr_end), "text": cl, "voice": v})
             curr_start, curr_end = m.group(1), m.group(2)
             curr_text = []
-        elif not s.isdigit() and "-->" not in s: curr_text.append(s)
+        elif not s.isdigit() and "-->" not in s:
+            curr_text.append(s)
             
+    # ចាប់យកជួរចុងក្រោយបង្អស់ (Fixed Last Item Bug)
     if curr_start and curr_text:
         sp = " ".join(curr_text).strip()
         v = "km-KH-PisethNeural"
@@ -194,7 +220,7 @@ def parse_srt(srt_text, mode):
             if any(k in sp.lower() for k in ["ស្រី", "female", "(f)", "[f]", "woman"]): v = "km-KH-SreymomNeural"
         elif "👩" in mode: v = "km-KH-SreymomNeural"
         cl = clean_speech_text(sp)
-        if cl: items.append({"start": parse_time_to_ms(curr_start), "end": parse_time_to_ms(curr_end), "text": cl, "voice": v, "start_str": curr_start, "end_str": curr_end})
+        if cl: items.append({"start": parse_time_to_ms(curr_start), "end": parse_time_to_ms(curr_end), "text": cl, "voice": v})
     return items
 
 def generate_and_fit_audio(text, voice, out_path, target_ms):
@@ -245,7 +271,7 @@ if input_opt == "🔗 URL Link (TikTok / YouTube)":
             if os.path.exists(CACHE_SCRIPT_FILE): os.remove(CACHE_SCRIPT_FILE)
             if os.path.exists(video_input_path): os.remove(video_input_path)
             st_box = st.empty()
-            st_box.info("⏳ កំពុងទាញយកវីដេអូ...")
+            st_box.info("⏳ កំពុងទាញយកវីដេអូ និងសំឡេង...")
             ok, msg = download_video_all(url_in.strip(), video_input_path)
             if ok:
                 st_box.success("🎉 ទាញយកវីដេអូជោគជ័យ!")
@@ -264,8 +290,16 @@ if os.path.exists(video_input_path):
         if not gemini_key.strip(): st.error("❌ សូមបញ្ចូល Gemini API Key!")
         else:
             st_box = st.empty()
-            st_box.info("⏳ កំពុងបន្សុទ្ធសំឡេងមនុស្សនិយាយ...")
-            subprocess.run(["ffmpeg", "-y", "-i", video_input_path, "-vn", "-af", "highpass=f=100,lowpass=f=3800,volume=1.8", "-ar", "16000", "-ac", "1", "-b:a", "128k", extracted_mp3_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            st_box.info("⏳ កំពុងបន្សុទ្ធសំឡេងមនុស្សនិយាយ (Vocal Boost & Noise Clean)...")
+            subprocess.run([
+                "ffmpeg", "-y", "-i", video_input_path,
+                "-vn",
+                "-af", "highpass=f=100,lowpass=f=3800,volume=1.8",
+                "-ar", "16000",
+                "-ac", "1",
+                "-b:a", "128k",
+                extracted_mp3_path
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
             if not os.path.exists(extracted_mp3_path) or os.path.getsize(extracted_mp3_path) < 1000:
                 st_box.error("❌ មិនអាចទាញយកសំឡេងបានទេ!")
@@ -276,12 +310,12 @@ if os.path.exists(video_input_path):
                     audio_file = client.files.upload(file=extracted_mp3_path)
                     prompt = (
                         "CRITICAL INSTRUCTIONS FOR FULL AUDIO DUBBING TRANSCRIPTION:\n"
-                        "1. Listen to the ENTIRE audio file from the first second to the very last second without stopping.\n"
+                        "1. Listen to the ENTIRE audio file from the first second (00:00:00,000) to the very last second.\n"
                         "2. Transcribe EVERY single dialogue and conversation. DO NOT summarize, DO NOT skip any scene or silence.\n"
-                        "3. Translate every dialogue accurately into natural spoken Khmer.\n"
+                        "3. Translate every dialogue accurately and naturally into spoken Khmer.\n"
                         "4. Maintain precise timestamps for each line.\n"
                         "5. Tag every line with '[ប្រុស]' (Male) or '[ស្រី]' (Female) at the start.\n"
-                        "6. Keep each subtitle line concise (1 single line) for smooth dubbing sync.\n"
+                        "6. Keep each subtitle line concise (1 single line, 5-10 words) for smooth dubbing sync.\n"
                         "7. Return the result STRICTLY in valid SubRip (.srt) subtitle format without markdown formatting."
                     )
                     response = client.models.generate_content(
