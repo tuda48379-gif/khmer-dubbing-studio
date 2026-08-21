@@ -17,6 +17,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 st.set_page_config(page_title="Khmer Dubbing Studio Pro", layout="wide")
 
+# Custom UI Styling (កំណត់ពណ៌បៃតងសម្រាប់ប៊ូតុង Gemini)
 st.markdown("""
     <style>
     div[data-baseweb="textarea"] textarea {
@@ -24,6 +25,18 @@ st.markdown("""
         color: #FFFFFF !important;
         font-size: 15px !important;
         border: 1px solid #444444 !important;
+    }
+    div[data-testid="stButton"] button:has(div:contains("Gemini")) {
+        background-color: #28a745 !important;
+        color: #FFFFFF !important;
+        font-weight: bold !important;
+        border: none !important;
+        border-radius: 8px !important;
+        padding: 10px 20px !important;
+    }
+    div[data-testid="stButton"] button:has(div:contains("Gemini")):hover {
+        background-color: #218838 !important;
+        color: #FFFFFF !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -34,8 +47,6 @@ video_input_path = "original_video.mp4"
 extracted_mp3_path = "extracted_audio.mp3"
 raw_khmer_audio = "raw_khmer_audio.mp3"
 final_video_no_sub = "final_dubbed_audio_only.mp4"
-final_video_with_sub = "final_dubbed_with_sub.mp4"
-ass_sub_path = "subtitles.ass"
 
 def get_dir_size_mb():
     total_size = 0
@@ -49,7 +60,7 @@ def get_dir_size_mb():
 def hard_reset_all():
     files_to_delete = [
         CACHE_SCRIPT_FILE, video_input_path, extracted_mp3_path, 
-        raw_khmer_audio, final_video_no_sub, final_video_with_sub, ass_sub_path,
+        raw_khmer_audio, final_video_no_sub,
         "temp_dl_video.mp4", "temp_dl_audio.mp3", "t_raw_vid.mp4", "t_raw_aud.mp3"
     ]
     for f in files_to_delete:
@@ -76,13 +87,13 @@ st.title("🎬 Khmer Dubbing Studio Pro")
 # Storage Info Bar
 col_info, col_reset = st.columns([2.5, 1.5])
 with col_info:
-    st.info("💡 ដំណើរការ៖ ១. បញ្ចូលវីដេអូ ➔ ២. បកប្រែ Script ➔ ៣. បង្កើតសំឡេង Auto-Sync ➔ ៤. Render វីដេអូ")
+    st.info("💡 ដំណើរការ៖ ១. បញ្ចូលវីដេអូ ➔ ២. Gemini បកប្រែ Script ➔ ៣. បង្កើតសំឡេង Auto-Sync ➔ ៤. Render វីដេអូ")
 with col_reset:
     used_mb = get_dir_size_mb()
-    st.metric(label="💾 Disk Usage", value=f"{used_mb:.1f} MB")
-    if st.button("🗑️ Reset All", type="secondary", use_container_width=True):
+    st.metric(label="💾 ទំហំផ្ទុកប្រើប្រាស់ (Disk Usage)", value=f"{used_mb:.1f} MB")
+    if st.button("🗑️ សម្អាត Storage ទាំងអស់ (Reset)", type="secondary", use_container_width=True):
         hard_reset_all()
-        st.success("✅ បានសម្អាតរួចរាល់!")
+        st.success("✅ បានសម្អាតទំហំផ្ទុកជោគជ័យ!")
         st.rerun()
 
 st.divider()
@@ -110,7 +121,7 @@ def download_video_all(url, out_path):
             try: os.remove(f)
             except Exception: pass
 
-    # TikTok
+    # 1. TikTok (TikWM)
     if "tiktok.com" in url.lower():
         try:
             api_url = "https://www.tikwm.com/api/"
@@ -135,10 +146,10 @@ def download_video_all(url, out_path):
         except Exception:
             pass
 
-    # Universal / Dailymotion / FB
+    # 2. Dailymotion / FB / Universal
     try:
         ydl_opts = {
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'format': 'best',
             'outtmpl': out_path,
             'nocheckcertificate': True,
             'quiet': True,
@@ -150,12 +161,12 @@ def download_video_all(url, out_path):
         if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
             return True, "ជោគជ័យ"
     except Exception as e:
-        err_msg = str(e)
+        err_str = str(e)
         if "youtube" in url.lower() or "youtu.be" in url.lower():
             return False, "YouTube បានដាក់កំហិត Bot Block លើ Server Cloud។ សូម Upload File MP4 ដោយផ្ទាល់។"
-        return False, f"កំហុសទាញយក៖ {err_msg}"
+        return False, f"កំហុសទាញយក៖ {err_str}"
 
-    return False, "មិនអាចទាញយកបានទេ សូមពិនិត្យមើល Link ឬ Upload File MP4"
+    return False, "មិនអាចទាញយកបានទេ សូម Upload File MP4 ជំនួសវិញ"
 
 def parse_time_to_ms(t):
     t = t.replace(',', '.').strip()
@@ -167,13 +178,6 @@ def parse_time_to_ms(t):
     elif len(p) == 1:
         return int(float(p[0]) * 1000)
     return 0
-
-def ms_to_ass_time(ms):
-    hrs = int(ms // 3600000)
-    mins = int((ms % 3600000) // 60000)
-    secs = int((ms % 60000) // 1000)
-    cs = int((ms % 1000) // 10)
-    return f"{hrs:01d}:{mins:02d}:{secs:02d}.{cs:02d}"
 
 def clean_speech_text(text):
     patterns = [
@@ -189,22 +193,10 @@ def clean_speech_text(text):
         cleaned = re.sub(pat, '', cleaned, flags=re.IGNORECASE).strip()
     return re.sub(r'^[\[\(].*?[\]\)]\s*[:：]?', '', cleaned).strip()
 
-def limit_to_single_line(text, max_len=40):
-    if len(text) <= max_len: return text
-    parts = text.split(" ")
-    out = ""
-    for p in parts:
-        if len(out) + len(p) + 1 <= max_len: out = f"{out} {p}".strip()
-        else: break
-    return out if out else text[:max_len]
-
-# Regex គាំទ្រគ្រប់ទម្រង់ម៉ោង (HH:MM:SS,mmm ឬ MM:SS,mmm ឬ SS,mmm)
 def parse_srt(srt_text, mode):
     lines = srt_text.replace('\r\n', '\n').split('\n')
     items = []
     curr_start, curr_end, curr_text = None, None, []
-    
-    # Flexible Pattern សម្រាប់ម៉ោង
     time_pat = re.compile(r'((?:\d{1,2}:)?\d{1,2}:\d{2}[.,]\d{1,3})\s*-->\s*((?:\d{1,2}:)?\d{1,2}:\d{2}[.,]\d{1,3})')
 
     for line in lines:
@@ -249,27 +241,6 @@ def generate_and_fit_audio(text, voice, out_path, target_ms):
         else:
             if os.path.exists(out_path): os.remove(out_path)
             os.rename(temp_raw, out_path)
-
-def create_ass_file(items, out_ass):
-    header = """[Script Info]
-ScriptType: v4.00+
-PlayResX: 1280
-PlayResY: 720
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: KhmerSub,Noto Sans Khmer,30,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,0,2,20,20,35,1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
-    with open(out_ass, "w", encoding="utf-8") as f:
-        f.write(header)
-        for it in items:
-            s_t = ms_to_ass_time(it["start"])
-            e_t = ms_to_ass_time(it["end"])
-            txt = limit_to_single_line(it["text"])
-            f.write(f"Dialogue: 0,{s_t},{e_t},KhmerSub,,0,0,0,,{txt}\n")
 
 # 2. Video Source
 st.subheader("📥 ២. ប្រភពវីដេអូដើម")
@@ -409,70 +380,34 @@ if os.path.exists(raw_khmer_audio):
 
 st.divider()
 
-# 5. Step 2: Render Options
-st.subheader("🎬 ៥. ជំហានទី ២៖ ជ្រើសរើស Render វីដេអូ (រក្សាប្រវែងដើម)")
+# 5. Step 2: Render Option (រក្សាប្រវែងដើម ១០០%)
+st.subheader("🎬 ៥. ជំហានទី ២៖ Render វីដេអូ + សំឡេង (រក្សាប្រវែងដើម)")
 
-col_r1, col_r2 = st.columns(2)
+if st.button("🚀 Render Video + Audio Only", type="primary", use_container_width=True):
+    if not os.path.exists(video_input_path):
+        st.error("❌ មិនទាន់មានវីដេអូដើមទេ!")
+    elif not os.path.exists(raw_khmer_audio):
+        st.error("❌ សូមចុចបង្កើតសំឡេង (ជំហានទី ៤) ជាមុនសិន!")
+    else:
+        status_box = st.empty()
+        status_box.info("⏳ កំពុង Merge សំឡេង (រក្សាប្រវែងវីដេអូដើម)...")
+        ffmpeg_cmd = [
+            "ffmpeg", "-y",
+            "-i", video_input_path,
+            "-i", raw_khmer_audio,
+            "-filter_complex", "[1:a]apad[aout]",
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-map", "0:v:0",
+            "-map", "[aout]",
+            final_video_no_sub
+        ]
+        subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        status_box.success("🎉 Render វីដេអូ + សំឡេងសុទ្ធ រួចរាល់ពេញប្រវែងដើម!")
+        st.rerun()
 
-with col_r1:
-    st.write("🎬 **ជម្រើស A: វីដេអូ + សំឡេងសុទ្ធ (គ្មាន Subtitle)**")
-    if st.button("🚀 Render Video + Audio Only", type="primary", use_container_width=True):
-        if not os.path.exists(video_input_path):
-            st.error("❌ មិនទាន់មានវីដេអូដើមទេ!")
-        elif not os.path.exists(raw_khmer_audio):
-            st.error("❌ សូមចុចបង្កើតសំឡេង (ជំហានទី ៤) ជាមុនសិន!")
-        else:
-            status_box = st.empty()
-            status_box.info("⏳ កំពុង Merge សំឡេង (រក្សាប្រវែងវីដេអូដើម)...")
-            ffmpeg_cmd = [
-                "ffmpeg", "-y",
-                "-i", video_input_path,
-                "-i", raw_khmer_audio,
-                "-filter_complex", "[1:a]apad[aout]",
-                "-c:v", "copy",
-                "-c:a", "aac",
-                "-map", "0:v:0",
-                "-map", "[aout]",
-                final_video_no_sub
-            ]
-            subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-            status_box.success("🎉 Render វីដេអូ + សំឡេងសុទ្ធ រួចរាល់ពេញប្រវែងដើម!")
-            st.rerun()
-
-    if os.path.exists(final_video_no_sub):
-        st.video(final_video_no_sub)
-        with open(final_video_no_sub, "rb") as vf1:
-            st.download_button("📥 Download Video (No Sub)", vf1, file_name="dubbed_video_audio_only.mp4", use_container_width=True)
-
-with col_r2:
-    st.write("🔤 **ជម្រើស B: វីដេអូ + សំឡេង + Subtitle ខ្មែរ (Unicode 1 ជួរ)**")
-    if st.button("🚀 Render Video + Audio + Subtitle", type="primary", use_container_width=True):
-        if not os.path.exists(video_input_path):
-            st.error("❌ មិនទាន់មានវីដេអូដើមទេ!")
-        elif not os.path.exists(raw_khmer_audio):
-            st.error("❌ សូមចុចបង្កើតសំឡេង (ជំហានទី ៤) ជាមុនសិន!")
-        else:
-            status_box = st.empty()
-            status_box.info("⏳ កំពុងដុត Subtitle ខ្មែរ (ASS) និង Merge សំឡេងពេញប្រវែងដើម...")
+if os.path.exists(final_video_no_sub):
+    st.video(final_video_no_sub)
+    with open(final_video_no_sub, "rb") as vf1:
+        st.download_button("📥 Download Video Final", vf1, file_name="dubbed_video_audio_only.mp4", use_container_width=True)
             
-            items = parse_srt(user_script.strip(), v_choice)
-            create_ass_file(items, ass_sub_path)
-            
-            ffmpeg_cmd = [
-                "ffmpeg", "-y",
-                "-i", video_input_path,
-                "-i", raw_khmer_audio,
-                "-filter_complex", f"[0:v]ass={ass_sub_path}[vout];[1:a]apad[aout]",
-                "-c:a", "aac",
-                "-map", "[vout]",
-                "-map", "[aout]",
-                final_video_with_sub
-            ]
-            subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-            status_box.success("🎉 Render វីដេអូ + Subtitle ខ្មែរ រួចរាល់ពេញប្រវែងដើម!")
-            st.rerun()
-
-    if os.path.exists(final_video_with_sub):
-        st.video(final_video_with_sub)
-        with open(final_video_with_sub, "rb") as vf2:
-            st.download_button("📥 Download Video (+ Subtitle)", vf2, file_name="dubbed_video_with_sub.mp4", use_container_width=True)
