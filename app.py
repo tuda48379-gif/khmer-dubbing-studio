@@ -37,6 +37,15 @@ final_video_no_sub = "final_dubbed_audio_only.mp4"
 final_video_with_sub = "final_dubbed_with_sub.mp4"
 ass_sub_path = "subtitles.ass"
 
+def get_dir_size_mb():
+    total_size = 0
+    for dirpath, dirnames, filenames in os.walk('.'):
+        for f in filenames:
+            fp = os.path.join(dirpath, f)
+            if not os.path.islink(fp):
+                total_size += os.path.getsize(fp)
+    return total_size / (1024 * 1024)
+
 def hard_reset_all():
     files_to_delete = [
         CACHE_SCRIPT_FILE, video_input_path, extracted_mp3_path, 
@@ -64,14 +73,16 @@ def hard_reset_all():
 
 st.title("🎬 Khmer Dubbing Studio Pro")
 
-col_info, col_reset = st.columns([3, 1])
+# UI Storage Control Box
+col_info, col_reset = st.columns([2.5, 1.5])
 with col_info:
     st.info("💡 ដំណើរការ៖ ១. បញ្ចូលវីដេអូ ➔ ២. បកប្រែ Script ➔ ៣. បង្កើតសំឡេង Auto-Sync ➔ ៤. Render វីដេអូពេញប្រវែងដើម")
 with col_reset:
-    st.write("🧹 **Storage & Cache**")
-    if st.button("🗑️ Reset All (លុប Data ទាំងអស់)", type="secondary", use_container_width=True):
+    used_mb = get_dir_size_mb()
+    st.metric(label="💾 ទំហំផ្ទុកប្រើប្រាស់ (Disk Usage)", value=f"{used_mb:.1f} MB")
+    if st.button("🗑️ សម្អាត Storage ទាំងអស់ (Reset)", type="secondary", use_container_width=True):
         hard_reset_all()
-        st.success("✅ បាន Reset រួចរាល់!")
+        st.success("✅ បានសម្អាតទំហំផ្ទុកជោគជ័យ!")
         st.rerun()
 
 st.divider()
@@ -95,7 +106,13 @@ def has_audio_stream(file_path):
 def download_video_all(url, out_path):
     url = url.strip()
     
-    # 1. TikWM API សម្រាប់ TikTok
+    # សម្អាតវីដេអូចាស់ចោលជាមុនសិន ដើម្បីកុំឱ្យចង្អៀតមេម៉ូរី
+    for f in [out_path, "t_raw_vid.mp4", "t_raw_aud.mp3"]:
+        if os.path.exists(f):
+            try: os.remove(f)
+            except Exception: pass
+
+    # 1. សម្រាប់ TikTok (តាម TikWM)
     if "tiktok.com" in url.lower():
         try:
             api_url = "https://www.tikwm.com/api/"
@@ -122,30 +139,27 @@ def download_video_all(url, out_path):
         except Exception:
             pass
 
-    # 2. ប្រើ Cobalt API Fallback សម្រាប់ដោះស្រាយ YouTube Bot Block
-    cobalt_instances = [
-        "https://co.wuk.sh/api/json",
-        "https://api.cobalt.tools/api/json",
-        "https://cobalt.api.kwiatekm.com/api/json"
-    ]
-    for c_api in cobalt_instances:
+    # 2. សម្រាប់ Dailymotion, Facebook, Vimeo និងវេបសាយទូទៅ (Universal)
+    if not ("youtube.com" in url.lower() or "youtu.be" in url.lower()):
         try:
-            headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
-            payload = {"url": url, "vQuality": "720"}
-            res = requests.post(c_api, headers=headers, json=payload, timeout=12).json()
-            dl_url = res.get("url")
-            if dl_url:
-                r = requests.get(dl_url, stream=True, timeout=30)
-                with open(out_path, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=1024*1024):
-                        if chunk: f.write(chunk)
-                if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
-                    return True, "ជោគជ័យតាម Cobalt API"
-        except Exception:
-            continue
+            ydl_opts = {
+                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                'outtmpl': out_path,
+                'nocheckcertificate': True,
+                'quiet': True,
+                'no_warnings': True,
+                'merge_output_format': 'mp4'
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+            if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
+                return True, "ជោគជ័យ"
+        except Exception as e:
+            return False, f"កំហុសទាញយក៖ {e}"
 
-    # 3. yt-dlp Multi-client Fallback
+    # 3. សម្រាប់ YouTube
     clients = [['mweb'], ['ios'], ['android']]
+    last_err = ""
     for c in clients:
         try:
             ydl_opts = {
@@ -161,10 +175,11 @@ def download_video_all(url, out_path):
                 ydl.download([url])
             if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
                 return True, "ជោគជ័យ"
-        except Exception:
+        except Exception as e:
+            last_err = str(e)
             continue
             
-    return False, "YouTube បានដាក់កំហិត Bot Block លើ Server។ ប្រសិនបើ Link នៅតែទាញយកមិនបាន សូមប្រើជម្រើស Upload File MP4 ជំនួសវិញ។"
+    return False, f"កំហុស YouTube Bot Block៖ {last_err}"
 
 def parse_time_to_ms(t):
     t = t.replace(',', '.').strip()
@@ -273,16 +288,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 # 2. Video Source
 st.subheader("📥 ២. ប្រភពវីដេអូដើម")
-input_opt = st.radio("វិធីសាស្ត្របញ្ចូលវីដេអូ៖", ["🔗 URL Link (TikTok / YouTube)", "📂 Upload File MP4"], key="v_opt")
+input_opt = st.radio("វិធីសាស្ត្របញ្ចូលវីដេអូ៖", ["🔗 URL Link (Dailymotion/TikTok/FB/YouTube)", "📂 Upload File MP4"], key="v_opt")
 
-if input_opt == "🔗 URL Link (TikTok / YouTube)":
-    url_in = st.text_input("🔗 បញ្ចូល Link វីដេអូ TikTok/YouTube៖", placeholder="https://youtu.be/...")
+if input_opt == "🔗 URL Link (Dailymotion/TikTok/FB/YouTube)":
+    url_in = st.text_input("🔗 បញ្ចូល Link វីដេអូ៖", placeholder="https://www.dailymotion.com/video/...")
     if st.button("📥 ទាញយកវីដេអូដើម", type="primary"):
         if not url_in.strip(): 
             st.error("សូមបញ្ចូល URL!")
         else:
             if os.path.exists(CACHE_SCRIPT_FILE): os.remove(CACHE_SCRIPT_FILE)
-            if os.path.exists(video_input_path): os.remove(video_input_path)
             st_box = st.empty()
             st_box.info("⏳ កំពុងទាញយកវីដេអូ...")
             ok, msg = download_video_all(url_in.strip(), video_input_path)
@@ -300,45 +314,53 @@ else:
 
 if os.path.exists(video_input_path):
     st.video(video_input_path)
-    if st.button("✨ ប្រើ Gemini 3.6 Flash ស្ដាប់វីដេអូ ➔ បកប្រែជា Khmer SRT"):
-        if not gemini_key.strip(): 
-            st.error("❌ សូមបញ្ចូល Gemini API Key!")
-        else:
-            st_box = st.empty()
-            st_box.info("⏳ កំពុងទាញយកសំឡេងច្បាស់ដើម...")
-            subprocess.run([
-                "ffmpeg", "-y", "-i", video_input_path,
-                "-vn", "-ar", "24000", "-ac", "1", "-b:a", "128k",
-                extracted_mp3_path
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    
+    col_vid_del, col_vid_ai = st.columns([1, 3])
+    with col_vid_del:
+        if st.button("🗑️ លុបវីដេអូនេះ", use_container_width=True):
+            if os.path.exists(video_input_path): os.remove(video_input_path)
+            st.rerun()
             
-            if not os.path.exists(extracted_mp3_path) or os.path.getsize(extracted_mp3_path) < 1000:
-                st_box.error("❌ មិនអាចទាញយកសំឡេងបានទេ!")
+    with col_vid_ai:
+        if st.button("✨ ប្រើ Gemini 3.6 Flash ស្ដាប់វីដេអូ ➔ បកប្រែជា Khmer SRT", use_container_width=True):
+            if not gemini_key.strip(): 
+                st.error("❌ សូមបញ្ចូល Gemini API Key!")
             else:
-                try:
-                    st_box.info("✨ Gemini 3.6 Flash កំពុងស្ដាប់គ្រប់វិនាទី & បកប្រែ...")
-                    client = genai.Client(api_key=gemini_key.strip())
-                    audio_file = client.files.upload(file=extracted_mp3_path)
-                    prompt = (
-                        "You are an expert movie translator. Your goal is 100% full coverage.\n"
-                        "1. Listen to the entire audio file from beginning to end.\n"
-                        "2. Transcribe every spoken sentence and translate directly into natural spoken Khmer.\n"
-                        "3. Tag [ប្រុស] for male voice or [ស្រី] for female voice at start of each line.\n"
-                        "4. Output strictly in valid SubRip (.srt) subtitle format.\n"
-                        "5. Do not skip dialogues. Output raw SRT only."
-                    )
-                    response = client.models.generate_content(
-                        model='gemini-3.6-flash',
-                        contents=[audio_file, prompt],
-                        config={'temperature': 0.1, 'max_output_tokens': 8192}
-                    )
-                    res_text = response.text.replace("```srt", "").replace("```", "").strip()
-                    with open(CACHE_SCRIPT_FILE, "w", encoding="utf-8") as f: 
-                        f.write(res_text)
-                    st_box.success("🎉 Gemini 3.6 Flash បានបកប្រែរួចរាល់ពេញលេញ!")
-                    st.rerun()
-                except Exception as e: 
-                    st_box.error(f"❌ កំហុស Gemini៖ {e}")
+                st_box = st.empty()
+                st_box.info("⏳ កំពុងទាញយកសំឡេងច្បាស់ដើម...")
+                subprocess.run([
+                    "ffmpeg", "-y", "-i", video_input_path,
+                    "-vn", "-ar", "24000", "-ac", "1", "-b:a", "128k",
+                    extracted_mp3_path
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                
+                if not os.path.exists(extracted_mp3_path) or os.path.getsize(extracted_mp3_path) < 1000:
+                    st_box.error("❌ មិនអាចទាញយកសំឡេងបានទេ!")
+                else:
+                    try:
+                        st_box.info("✨ Gemini 3.6 Flash កំពុងស្ដាប់គ្រប់វិនាទី & បកប្រែ...")
+                        client = genai.Client(api_key=gemini_key.strip())
+                        audio_file = client.files.upload(file=extracted_mp3_path)
+                        prompt = (
+                            "You are an expert movie translator. Your goal is 100% full coverage.\n"
+                            "1. Listen to the entire audio file from beginning to end.\n"
+                            "2. Transcribe every spoken sentence and translate directly into natural spoken Khmer.\n"
+                            "3. Tag [ប្រុស] for male voice or [ស្រី] for female voice at start of each line.\n"
+                            "4. Output strictly in valid SubRip (.srt) subtitle format.\n"
+                            "5. Do not skip dialogues. Output raw SRT only."
+                        )
+                        response = client.models.generate_content(
+                            model='gemini-3.6-flash',
+                            contents=[audio_file, prompt],
+                            config={'temperature': 0.1, 'max_output_tokens': 8192}
+                        )
+                        res_text = response.text.replace("```srt", "").replace("```", "").strip()
+                        with open(CACHE_SCRIPT_FILE, "w", encoding="utf-8") as f: 
+                            f.write(res_text)
+                        st_box.success("🎉 Gemini 3.6 Flash បានបកប្រែរួចរាល់ពេញលេញ!")
+                        st.rerun()
+                    except Exception as e: 
+                        st_box.error(f"❌ កំហុស Gemini៖ {e}")
 
 st.divider()
 
@@ -400,7 +422,7 @@ if os.path.exists(raw_khmer_audio):
 
 st.divider()
 
-# 5. Step 2: Render Options (រក្សាប្រវែងវីដេអូដើមពេញលេញ ១០០% ដោយមិនកាត់ខ្លីតាមសំឡេង)
+# 5. Step 2: Render Options (រក្សាប្រវែងដើម ១០០%)
 st.subheader("🎬 ៥. ជំហានទី ២៖ ជ្រើសរើស Render វីដេអូ (រក្សាប្រវែងដើម)")
 
 col_r1, col_r2 = st.columns(2)
